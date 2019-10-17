@@ -3,6 +3,7 @@ from os import path
 
 from glob import glob
 from itertools import filterfalse, groupby
+import warnings
 
 import pvl
 
@@ -14,6 +15,8 @@ import subprocess
 import re
 import networkx as nx
 from networkx.algorithms.shortest_paths.generic import shortest_path
+
+import spiceypy as spice
 
 from ale import spice_root
 
@@ -63,8 +66,8 @@ def get_metakernels(spice_dir=spice_root, missions=set(), years=set(), versions=
 
     for md in mission_dirs:
         # Assuming spice root has the same name as the original on NAIF website"
-        mission = os.path.basename(md).split('-')[0]
-        if missions and (mission.lower() not in missions):
+        mission = os.path.basename(md).split('-')[0].split('_')[0]
+        if missions and all([m not in mission.lower() for m in missions]):
             continue
 
         metakernel_keys = ['mission', 'year', 'version', 'path']
@@ -72,11 +75,17 @@ def get_metakernels(spice_dir=spice_root, missions=set(), years=set(), versions=
         # recursive glob to make metakernel search more robust to subtle directory structure differences
         metakernel_paths = sorted(glob(os.path.join(md, '**','*.tm'), recursive=True))
 
-        metakernels = [dict(zip(metakernel_keys, [mission]+path.splitext(path.basename(k))[0].split('_')[1:3] + [k])) for k in metakernel_paths]
+        metakernels = []
+        for k in metakernel_paths:
+            components = path.splitext(path.basename(k))[0].split('_') + [k]
+            if len(components) == 3:
+                components.insert(1, 'N/A')
+
+            metakernels.append(dict(zip(metakernel_keys, components)))
 
         # naive filter, do we really need anything else?
         if years:
-            metakernels = list(filter(lambda x:x['year'] in years, metakernels))
+            metakernels = list(filter(lambda x:x['year'] in years or x['year'] == 'N/A', metakernels))
         if versions:
             if versions == 'latest':
                 latest = []
@@ -204,11 +213,26 @@ def generate_kernels_from_cube(cube,  expand=False, format_as='list'):
     cubelabel = pvl.load(cube)
 
     try:
-        kernel_group = cubelabel['IsisCube']['Kernels']
+        kernel_group = cubelabel['IsisCube']
     except KeyError:
         raise KeyError(f'{cubelabel}, Could not find kernels group, input cube [{cube}] may not be spiceinited')
 
-    # Start loading. Stuff that might have multiple entries first
+    return get_kernels_from_isis_pvl(kernel_group, expand, format_as)
+
+def get_kernels_from_isis_pvl(kernel_group, expand=True, format_as="list"):
+    # enforce key order
+    mk_paths = OrderedDict.fromkeys(
+        ['TargetPosition', 'InstrumentPosition',
+         'InstrumentPointing', 'Frame', 'TargetAttitudeShape',
+         'Instrument', 'InstrumentAddendum', 'LeapSecond',
+         'SpacecraftClock', 'Extra'])
+
+
+    if isinstance(kernel_group, str):
+        kernel_group = pvl.loads(kernel_group)
+
+    kernel_group = kernel_group["Kernels"]
+
     def load_table_data(key):
         mk_paths[key] = kernel_group.get(key, None)
         if isinstance(mk_paths[key], str):
@@ -219,7 +243,6 @@ def generate_kernels_from_cube(cube,  expand=False, format_as='list'):
     load_table_data('InstrumentPosition')
     load_table_data('InstrumentPointing')
     load_table_data('TargetAttitudeShape')
-
     # the rest
     mk_paths['Frame'] = [kernel_group.get('Frame', None)]
     mk_paths['Instrument'] = [kernel_group.get('Instrument', None)]
@@ -247,7 +270,6 @@ def generate_kernels_from_cube(cube,  expand=False, format_as='list'):
         return mk_paths
     else:
         raise Exception(f'{format_as} is not a valid return format')
-
 
 def write_metakernel_from_cube(cube, mkpath=None):
     # add ISISPREF paths as path_symbols and path_values to avoid custom expand logic
@@ -423,3 +445,64 @@ def write_metakernel_from_kernel_list(kernels):
         ])
 
     return body
+
+
+
+def duckpool(naifvar, start=0, length=10, default=None):
+    """
+    Duck typing friendly version of spiceypy kernel pool functions.
+
+    Parameters
+    ----------
+    naifvar : str
+              naif var string to query pool for
+
+    start : int
+            Index of first value
+
+    length : int
+             max number of values returned
+
+    default : obj
+              Default value to return if key is not found in kernel pool
+
+    Returns
+    -------
+    : obj
+      Spice value returned from spiceypy if found, default value otherwise
+
+    """
+    for f in [spice.gdpool, spice.gcpool, spice.gipool]:
+        try:
+            val = f(naifvar, start, length)
+            return val[0] if  len(val) == 1 else val
+        except:
+            continue
+    return default
+
+
+def query_kernel_pool(matchstr="*"):
+    """
+    Collect multiple keywords from the naif kernel pool based on a
+    template string
+
+    Parameters
+    ----------
+    matchstr : str
+               matchi_c formatted str
+
+    Returns
+    -------
+    : dict
+      python dictionary of naif keywords in {keyword:value} format.
+    """
+
+    try:
+        svars = spice.gnpool(matchstr, 0, 100)
+    except Exception as e:
+        warnings.warn(f"kernel search for {matchstr} failed with {e}")
+        svars = []
+
+    svals = [duckpool(v) for v in svars]
+    return dict(zip(svars, svals))
+

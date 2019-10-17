@@ -28,7 +28,7 @@ __formatters__ = {'usgscsm': to_usgscsm,
                   'isis': to_isis}
 
 def sort_drivers(drivers=[]):
-    return list(sorted(drivers, key=lambda x:IsisSpice in x.__bases__, reverse=True))
+    return list(sorted(drivers, key=lambda x:IsisSpice in x.__bases__, reverse=False))
 
 class AleJsonEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -68,7 +68,11 @@ def load(label, props={}, formatter='usgscsm', verbose=False):
             res.instrument_id
 
             with res as driver:
-                return formatter(driver)
+                isd = formatter(driver)
+                if verbose:
+                    print("Success with: ", driver)
+                    print("ISD:\n", json.dumps(isd, indent=2, cls=AleJsonEncoder))
+                return isd
         except Exception as e:
             if verbose:
                 print(f'Failed: {e}\n')

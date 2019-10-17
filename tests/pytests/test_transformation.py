@@ -16,8 +16,27 @@ def test_create_quaternion_rotations():
     assert len(rotations) == 1
     assert rotations[0].source == 1
     assert rotations[0].dest == -1000
-    np.testing.assert_equal(rotations[0].times, np.array([0, 1]))
-    np.testing.assert_almost_equal(rotations[0].quats, np.array([[0, 0, 0, 1], [0.5, 0.5, 0.5, 0.5]]))
+    np.testing.assert_equal(rotations[0].times, [0, 1])
+    np.testing.assert_almost_equal(rotations[0].quats, [[0, 0, 0, 1], [0.5, 0.5, 0.5, 0.5]])
+
+def test_create_quaternion_av_rotations():
+    test_table = {
+        'J2000Q0' : [1, 0.5],
+        'J2000Q1' : [0, 0.5],
+        'J2000Q2' : [0, 0.5],
+        'J2000Q3' : [0, 0.5],
+        'AV1' : [0, 1],
+        'AV2' : [2, 3],
+        'AV3' :[4, 5],
+        'ET' : [0, 1],
+        'TimeDependentFrames' : [-1000, -100, 1]}
+    rotations = create_rotations(test_table)
+    assert len(rotations) == 1
+    assert rotations[0].source == 1
+    assert rotations[0].dest == -1000
+    np.testing.assert_equal(rotations[0].times, [0, 1])
+    np.testing.assert_almost_equal(rotations[0].quats, [[0, 0, 0, 1], [0.5, 0.5, 0.5, 0.5]])
+    np.testing.assert_almost_equal(rotations[0].av, [[0, 2, 4], [1, 3, 5]])
 
 def test_create_two_rotations():
     test_table = {
@@ -71,9 +90,9 @@ def frame_tree(request):
         ConstantRotation(np.array([1.0/np.sqrt(2), 0, 0, 1.0/np.sqrt(2)]), 3, 2),
         ConstantRotation(np.array([1.0/np.sqrt(2), 0, 0, 1.0/np.sqrt(2)]), 4, 1)
     ]
-    frame_chain.add_edge(2, 1, rotation = rotations[0])
-    frame_chain.add_edge(3, 2, rotation = rotations[1])
-    frame_chain.add_edge(4, 1, rotation = rotations[2])
+    frame_chain.add_edge(rotation = rotations[0])
+    frame_chain.add_edge(rotation = rotations[1])
+    frame_chain.add_edge(rotation = rotations[2])
 
     return frame_chain, rotations
 
@@ -156,10 +175,10 @@ def test_last_time_dependent_frame_between():
             np.array([1]), 4, 1),
         ConstantRotation(np.array([1.0/np.sqrt(2), 0, 0, 1.0/np.sqrt(2)]), 5, 4)
     ]
-    frame_chain.add_edge(2, 1, rotation = rotations[0])
-    frame_chain.add_edge(3, 2, rotation = rotations[1])
-    frame_chain.add_edge(4, 1, rotation = rotations[2])
-    frame_chain.add_edge(5, 4, rotation = rotations[3])
+    frame_chain.add_edge(rotation = rotations[0])
+    frame_chain.add_edge(rotation = rotations[1])
+    frame_chain.add_edge(rotation = rotations[2])
+    frame_chain.add_edge(rotation = rotations[3])
 
     # last frame from node 1 to node 3
     s31, d31, _ = frame_chain.last_time_dependent_frame_between(1, 3)
